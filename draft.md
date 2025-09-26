@@ -99,3 +99,45 @@ In contrast, **discrete TPMs** with NV storage and persistent handle support **m
 - [Microsoft fTPM Overview](https://learn.microsoft.com/en-us/windows/security/information-protection/tpm/trusted-platform-module-overview)
 - [Yubico PIV Attestation](https://developers.yubico.com/PIV/Attestation/)
 
+---
+
+update
+instead of rely on presistent signature try to verify the systems integrity
+
+---
+
+## 🆕 Alternative Approach to AK Persistence via Attestation Snapshots
+
+The original idea of binding a system's identity to a fTPM-based Attestation Key (AK) encountered a fundamental limitation: **non-persistence of the AK across reboots**. Since the AK is transient and lost upon system restart, it cannot serve as a stable trust anchor for long-term identity binding or re-verification of prior attestations.
+
+### ⬇ New Approach: Snapshotting TPM Context During Active Session
+
+Instead of persisting the AK itself, we snapshot its **runtime context** and generate a verifiable log of its **relationship to the system state** at a specific point in time.
+
+This is achieved by:
+
+1. **Loading the AK and a signing key** into the fTPM during a trusted session.
+2. Using `tpm2_readpublic` to extract the **public name** of both keys.
+3. Generating a **TPM attestation** (e.g., via `tpm2_quote` or `tpm2_certify`) over selected PCRs, optionally including a fresh nonce.
+4. **Outputting all relevant data (public keys, key names, attestation, and PCR values) to disk or console**.
+5. **Signing this data with a persistent cryptographic identity**, e.g., a PIV or OpenPGP key stored on a YubiKey.
+
+The resulting bundle (e.g., a `.tar.gz` archive with a detached PGP signature) forms a cryptographically verifiable snapshot of the system's TPM state at the time of attestation.
+
+### 🔁 Re-verification After Reboot
+
+Even though the AK is destroyed after reboot, the attestation remains valid as a **signed record of past TPM state**. A verifier can:
+
+- Confirm that the AK used in the attestation was loaded at the time of the session.
+- Match the **quoted PCR values** against expected system measurements.
+- Verify the cryptographic binding to the YubiKey identity that signed the snapshot.
+
+### ✅ Trust Outcome
+
+This method does not provide **device identity persistence**, but it **authenticates the platform state at a given time** and allows a remote party to determine:
+
+- That the system was in a known-good configuration,
+- That a specific, ephemeral AK was active,
+- And that a trusted YubiKey holder vouches for that state.
+
+Together, these assertions can be used to build a **social- or peer-rooted trust relationship**, without reliance on centralized certificate authorities or TPM manufacturer-issued keys.
